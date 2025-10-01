@@ -18,6 +18,8 @@ load_dotenv()
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
+GEMINI_MODEL = os.getenv('GEMINI_MODEL', 'gemini-robotics-er-1.5-preview')
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
@@ -51,6 +53,9 @@ INSTALLED_APPS = [
     'django.contrib.contenttypes',
     'allauth.socialaccount.providers.google',
     'allauth.socialaccount.providers.github',
+    'apps.auth.apps.AuthConfig',
+    'apps.tapo.apps.TapoConfig',
+    'apps.chatbot.apps.ChatbotConfig',
 ]
 
 MIDDLEWARE = [
@@ -79,7 +84,7 @@ CSRF_COOKIE_SAMESITE = "None"
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
-        'apps.base.authentication.CookiesOrHeaderJWTAuthentication',
+        'apps.auth.authentication.CookiesOrHeaderJWTAuthentication',
     ),
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
@@ -206,3 +211,12 @@ LOGOUT_REDIRECT_URL = ''
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# Caches (default: 60)
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 'chatbot-cache',
+        'TIMEOUT': 60,
+    }
+}
