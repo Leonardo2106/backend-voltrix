@@ -135,3 +135,22 @@ def get_dispositivo_energia(request, pk: int):
         })
     except Exception as e:
         return Response({'detail': f'Falha ao consultar P110: {e}'}, status=status.HTTP_502_BAD_GATEWAY)
+    
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
+def dispositivos(request):
+    user = request.user
+
+    if request.method == 'GET':
+        qs = Dispositivo.objects.filter(owner=user)
+        return Response(DispositivoSerializer(qs, many=True).data)
+
+    data = request.data or {}
+    allowed = [
+        'title', 'local', 'definicao', 'uso_energia', 'power',
+        'tempo_exec', 'uso_ener', 'potencia_atual', 'ip'
+    ]
+    payload = {k: data.get(k) for k in allowed if k in data}
+
+    disp = Dispositivo.objects.create(owner=user, **payload)
+    return Response(DispositivoSerializer(disp).data, status=status.HTTP_201_CREATED)
