@@ -130,16 +130,22 @@ def _refresh_and_cache_energy_for_user(user, dispositivo_id: int | None = None, 
 
 def _get_cached_energy(user, dispositivo_id: int | None = None):
     if dispositivo_id:
+        snap = cache.get(f"energy:last:device:{dispositivo_id}")
+        if snap:
+            return {"device_id": dispositivo_id, "title": None, "ip": None, **snap}
+
+    disp = None
+    if dispositivo_id:
         disp = Dispositivo.objects.filter(pk=dispositivo_id).first()
     else:
         disp = Dispositivo.objects.first()
-    if not disp: 
+    if not disp:
         return None
 
     if user and getattr(user, "is_authenticated", False):
         key_user = f"energy:last:{user.id}:{disp.id}"
         snap = cache.get(key_user)
-        if snap: 
+        if snap:
             return {"device_id": disp.id, "title": disp.title, "ip": disp.ip, **snap}
 
     key_dev = f"energy:last:device:{disp.id}"
@@ -147,6 +153,7 @@ def _get_cached_energy(user, dispositivo_id: int | None = None):
     if snap:
         return {"device_id": disp.id, "title": disp.title, "ip": disp.ip, **snap}
     return None
+
 
 def _get_cached(device_id=1):
     return cache.get(f"energy:last:device:{device_id}")

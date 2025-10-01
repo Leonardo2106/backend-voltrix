@@ -173,3 +173,12 @@ def ingest_energy(request):
     device_id = str(data.get("device_id") or "default")
     cache.set(f"energy:last:device:{device_id}", data, timeout=60)
     return Response({"ok": True})
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+@authentication_classes([])
+def energy_latest_cached(request, device_id: int):
+    snap = cache.get(f"energy:last:device:{device_id}")
+    if not snap:
+        return Response({"detail": "sem dados recentes para este device_id"}, status=status.HTTP_404_NOT_FOUND)
+    return Response(snap, status=status.HTTP_200_OK)
