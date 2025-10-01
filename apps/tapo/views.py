@@ -4,8 +4,10 @@ from pprint import pformat
 from asgiref.sync import async_to_sync
 from django.shortcuts import get_object_or_404
 
+from django.core.cache import cache
+
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework import status
 
@@ -154,3 +156,15 @@ def dispositivos(request):
 
     disp = Dispositivo.objects.create(owner=user, **payload)
     return Response(DispositivoSerializer(disp).data, status=status.HTTP_201_CREATED)
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def ingest_energy(request):
+    secret = os.getenv("INGEST_SECRET")
+    if request.headers.get("Authorization") != f"Bearer {secret}":
+        return Response({"detail":"unauthorized"}, status=401)
+
+    data = request.data or {}
+    device_id = str(data.get("device_id") or "default")
+    cache.set(f"energy:last:device:{device_id}", data, timeout=60)
+    return Response({"ok": True})

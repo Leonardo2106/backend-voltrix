@@ -33,9 +33,12 @@ def _to_dict(obj):
             try:
                 d = getattr(obj, m)()
                 if isinstance(d, dict): return d
-            except: pass
-    if dataclasses.is_dataclass(obj): return dataclasses.asdict(obj)
-    if hasattr(obj, "__dict__"): return {k:v for k,v in obj.__dict__.items() if not k.startswith("_")}
+            except: 
+                pass
+    if dataclasses.is_dataclass(obj): 
+        return dataclasses.asdict(obj)
+    if hasattr(obj, "__dict__"): 
+        return {k:v for k,v in obj.__dict__.items() if not k.startswith("_")}
     return {}
 
 def _mw_to_w(x):
@@ -55,19 +58,25 @@ async def _read_p110(ip: str, username: str, password: str):
     p = _first_attr(e, "current_power","current_power_w","power","power_w","active_power","power_mw")
     if p is None:
         for k in ("current_power","current_power_w","power","power_w","active_power","power_mw"):
-            if ed.get(k) is not None: p = ed[k]; break
+            if ed.get(k) is not None: 
+                p = ed[k]; 
+                break
     power_w = _mw_to_w(p) if p is not None else None
 
     t = _first_attr(e, "today_energy","energy_today","today_kwh","today_wh")
     if t is None:
         for k in ("today_energy","energy_today","today_kwh","today_wh"):
-            if ed.get(k) is not None: t = ed[k]; break
+            if ed.get(k) is not None: 
+                t = ed[k]; 
+                break
     today_kwh = _wh_to_kwh(t) if t is not None else None
 
     m = _first_attr(e, "month_energy","energy_month","month_kwh","month_wh")
     if m is None:
         for k in ("month_energy","energy_month","month_kwh","month_wh"):
-            if ed.get(k) is not None: m = ed[k]; break
+            if ed.get(k) is not None: 
+                m = ed[k]; 
+                break
     month_kwh = _wh_to_kwh(m) if m is not None else None
 
     info = await plug.get_device_info()
@@ -85,10 +94,18 @@ async def _read_p110(ip: str, username: str, password: str):
     }
 
 def _refresh_and_cache_energy_for_user(user, dispositivo_id: int | None = None, ttl: int = 30):
+    disp = None
     if dispositivo_id:
-        disp = Dispositivo.objects.filter(pk=dispositivo_id, owner=user).first()
+        if user and getattr(user, "is_authenticated", False):
+            disp = Dispositivo.objects.filter(pk=dispositivo_id, owner=user).first()
+        else:
+            disp = Dispositivo.objects.filter(pk=dispositivo_id).first()
     else:
-        disp = Dispositivo.objects.filter(owner=user).first()
+        if user and getattr(user, "is_authenticated", False):
+            disp = Dispositivo.objects.filter(owner=user).first()
+        else:
+            disp = Dispositivo.objects.first()
+
     if not disp or not disp.ip:
         return None, 'Dispositivo não encontrado ou sem IP.'
 
@@ -102,19 +119,39 @@ def _refresh_and_cache_energy_for_user(user, dispositivo_id: int | None = None, 
     except Exception as e:
         return None, f'Falha ao ler P110: {e}'
 
-    key = f'energy:last:{user.id}:{disp.id}'
+    # se não tiver user (público), use chave global pro dispositivo
+    if user and getattr(user, "is_authenticated", False):
+        key = f'energy:last:{user.id}:{disp.id}'
+    else:
+        key = f'energy:last:device:{disp.id}'
     cache.set(key, data, timeout=ttl)
+
     return {"device_id": disp.id, "title": disp.title, "ip": disp.ip, **data}, None
 
 def _get_cached_energy(user, dispositivo_id: int | None = None):
-    disp = (Dispositivo.objects.filter(pk=dispositivo_id, owner=user).first()
-            if dispositivo_id else Dispositivo.objects.filter(owner=user).first())
-    if not disp: return None
-    key = f"energy:last:{user.id}:{disp.id}"
-    return cache.get(key)
+    if dispositivo_id:
+        disp = Dispositivo.objects.filter(pk=dispositivo_id).first()
+    else:
+        disp = Dispositivo.objects.first()
+    if not disp: 
+        return None
+
+    if user and getattr(user, "is_authenticated", False):
+        key_user = f"energy:last:{user.id}:{disp.id}"
+        snap = cache.get(key_user)
+        if snap: 
+            return {"device_id": disp.id, "title": disp.title, "ip": disp.ip, **snap}
+
+    key_dev = f"energy:last:device:{disp.id}"
+    snap = cache.get(key_dev)
+    if snap:
+        return {"device_id": disp.id, "title": disp.title, "ip": disp.ip, **snap}
+    return None
+
+def _get_cached(device_id=1):
+    return cache.get(f"energy:last:device:{device_id}")
 
 class ChatOnceView(APIView):
-
     def post(self, request):
         body = request.data or {}
         message = (body.get("message") or "").strip()
@@ -127,20 +164,36 @@ class ChatOnceView(APIView):
         top_k         = int(body.get("top_k", 40))
         max_tokens    = int(body.get("max_output_tokens", 1024))
 
-        snapshot, err = _refresh_and_cache_energy_for_user(
-            getattr(request, 'user', None), dispositivo_id=dispositivo_id, ttl=30
-        )
-        context_line = ''
+        snapshot = None
+        err = None
+
+        if settings.DEBUG:
+            snapshot, err = _refresh_and_cache_energy_for_user(
+                getattr(request, 'user', None),
+                dispositivo_id=dispositivo_id,
+                ttl=30
+            )
+            if not snapshot:
+                cached = _get_cached_energy(getattr(request, 'user', None), dispositivo_id=dispositivo_id)
+                if cached:
+                    snapshot = cached
+        else:
+            cached = _get_cached_energy(getattr(request, 'user', None), dispositivo_id=dispositivo_id)
+            if cached:
+                snapshot = cached
+            else:
+                err = "Sem snapshot recente no cache (esperado ingest na rota /tapo/ingest/)."
+
         if snapshot:
             context_line = (
-                f"STATUS[{snapshot['title']}]: "
-                f"{(snapshot['w_instantaneo'] or 0):.1f} W agora | "
-                f"Hoje: {(snapshot['kwh_hoje'] or 0):.3f} kWh | "
-                f"Mês: {(snapshot['kwh_mes'] or 0):.3f} kWh | "
-                f"Ligado: {snapshot['ligado']}"
+                f"STATUS[{snapshot.get('title') or snapshot.get('nome') or 'dispositivo'}]: "
+                f"{(snapshot.get('w_instantaneo') or 0):.1f} W agora | "
+                f"Hoje: {(snapshot.get('kwh_hoje') or 0):.3f} kWh | "
+                f"Mês: {(snapshot.get('kwh_mes') or 0):.3f} kWh | "
+                f"Ligado: {snapshot.get('ligado')}"
             )
-        elif err:
-            context_line = f"STATUS: indisponível ({err})"
+        else:
+            context_line = f"STATUS: indisponível{(' ('+err+')') if err else ''}"
 
         system_prompt = body.get('system_prompt') or "Você é o Assistente Virtual da Votrix, responda em PT-BR, técnico e conciso."
         system_prompt += '\nSe o usuário perguntar sobre consumo/energia, use o STATUS abaixo.'
@@ -169,7 +222,7 @@ class ChatOnceView(APIView):
         return Response({
             "output": text,
             # "model": MODEL,
-            # "snapshot": snapshot, # detalhes sobre o dispositio
-            # "tokens_in": tokens_in, # quantos tokens entraram
-            # "tokens_out": tokens_out, # quantos tokes sairam
+            # "snapshot": snapshot,
+            # "tokens_in": tokens_in,
+            # "tokens_out": tokens_out,
         }, status=status.HTTP_200_OK)
