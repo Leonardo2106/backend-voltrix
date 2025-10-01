@@ -174,23 +174,28 @@ def _sanitize_db_url(url: str) -> str | None:
 
 _db = _sanitize_db_url(_raw_db)
 
-if _db:
-    ssl_req = _db.lower().startswith(("postgres://", "postgresql://", "redshift://"))
-    DATABASES = {
-        "default": dj_database_url.parse(
-            _db,
-            conn_max_age=600,
-            ssl_require=ssl_req,
-        )
-    }
-else:
-    DATABASES = {
+def _sqlite_fallback():
+    return {
         "default": {
             "ENGINE": "django.db.backends.sqlite3",
             "NAME": BASE_DIR / "db.sqlite3",
         }
     }
 
+if _db:
+    try:
+        ssl_req = _db.lower().startswith(("postgres://", "postgresql://", "redshift://"))
+        DATABASES = {
+            "default": dj_database_url.parse(
+                _db,
+                conn_max_age=600,
+                ssl_require=ssl_req,
+            )
+        }
+    except Exception:
+        DATABASES = _sqlite_fallback()
+else:
+    DATABASES = _sqlite_fallback()
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
