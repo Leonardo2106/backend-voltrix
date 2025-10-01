@@ -6,7 +6,7 @@ from django.shortcuts import get_object_or_404
 
 from django.core.cache import cache
 
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, permission_classes, authentication_classes
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework import status
@@ -159,10 +159,15 @@ def dispositivos(request):
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
+@authentication_classes([])
 def ingest_energy(request):
-    secret = os.getenv("INGEST_SECRET")
-    if request.headers.get("Authorization") != f"Bearer {secret}":
-        return Response({"detail":"unauthorized"}, status=401)
+    server_secret = os.getenv("INGEST_SECRET")
+    if not server_secret:
+        return Response({"detail": "INGEST_SECRET não configurado no servidor."}, status=500)
+
+    api_key = request.headers.get("X-Api-Key", "")
+    if api_key != server_secret:
+        return Response({"detail": "unauthorized"}, status=401)
 
     data = request.data or {}
     device_id = str(data.get("device_id") or "default")
