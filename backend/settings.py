@@ -11,7 +11,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 from pathlib import Path
-import os
+import os, re
 from dotenv import load_dotenv
 import dj_database_url
 
@@ -161,14 +161,26 @@ WSGI_APPLICATION = 'backend.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+_raw_db = os.getenv("DATABASE_URL", "").strip()
 
-if DATABASE_URL:
+def _sanitize_db_url(url: str) -> str | None:
+    if not url:
+        return None
+    if "://" not in url or url.startswith("://"):
+        return None
+    url = re.sub(r'^postgres(ql)?\+psycopg2://', 'postgresql://', url, flags=re.I)
+    url = re.sub(r'^mysql\+\w+://', 'mysql://', url, flags=re.I)
+    return url
+
+_db = _sanitize_db_url(_raw_db)
+
+if _db:
+    ssl_req = _db.lower().startswith(("postgres://", "postgresql://", "redshift://"))
     DATABASES = {
         "default": dj_database_url.parse(
-            DATABASE_URL,
+            _db,
             conn_max_age=600,
-            ssl_require=True,
+            ssl_require=ssl_req,
         )
     }
 else:
